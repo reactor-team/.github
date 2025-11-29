@@ -48,11 +48,9 @@ We're building that foundation.
 
 <div align="center">
 
-![Banner Image](assets/banner.png)
-
 ![Demo](assets/demo.gif)
 
-![Architecture](assets/architecture.png)
+![Poster](assets/architecture.png)
 
 </div>
 
