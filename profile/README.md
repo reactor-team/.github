@@ -36,8 +36,6 @@ Advanced optimization techniques to maximize performance and minimize latency fo
 
 <div align="center">
 
-![Demo](assets/demo.gif)
-
 ![Poster](assets/architecture.png)
 
 </div>
