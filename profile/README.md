@@ -2,47 +2,31 @@
 
 ![Reactor Banner](assets/banner.png)
 
-### Building the Developer Platform for Real-Time Generative Media
+### The Developer Platform for World Models
 
-*The infrastructure layer powering the next generation of interactive experiences built on world models*
+*Making it possible for anyone to create real-time, interactive media applications*
 
 </div>
 
 ---
 
-## Our Vision
+## Our Mission
 
-At **Reactor**, we're building the developer platform for real-time generative media: the infrastructure layer that will power the next generation of interactive experiences built on world models.
+Reactor is the developer platform for world models. We provide a unified system for building real-time applications powered by World Models, with sub-100ms latency and custom GPU orchestration.
 
-With our platform, developers will be able to easily create applications using **real-time interactive video models**.
+## The Platform
 
----
+**SDKs & APIs**
+The full developer experience for building any World Model application. Intuitive tools that handle complexity so developers can easily build.
 
-## What We're Building
+**Optimized Models**
+Curated, production-ready World Models (Open + Closed) optimized for real-time performance.
 
-**Real-Time Video Generation**
-Infrastructure for interactive video models that respond in real-time
+**Global Cloud Infrastructure**
+Sub-100ms latency with custom GPU orchestration. Enterprise-grade reliability and scale.
 
-**World Model Integration**
-Seamless integration with next-generation world models
-
-**Developer-First Tools**
-Intuitive APIs and SDKs for building the future of media
-
-**Scalable Infrastructure**
-Enterprise-grade platform built for performance and reliability
-
----
-
-## Why Reactor?
-
-The future of interactive experiences demands infrastructure that can handle:
-- Real-time generative content
-- Interactive video models
-- Responsive world simulations
-- Seamless developer experiences
-
-We're building that foundation.
+**Model Optimization**
+Advanced optimization techniques to maximize performance and minimize latency for production deployments.
 
 ---
 
