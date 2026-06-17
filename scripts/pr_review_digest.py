@@ -17,7 +17,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Union
 
 GH_TOKEN = os.environ["GH_TOKEN"]
-REPOS = os.environ.get("REPOS", "reactor-team/reactor,reactor-team/fluxcd")
+REPOS = os.environ.get(
+    "REPOS",
+    "reactor-team/reactor,reactor-team/fluxcd,"
+    "reactor-team/reactor-webapp,reactor-team/admin-webapp",
+)
 DRY_RUN = os.environ.get("DRY_RUN", "").lower() in ("1", "true", "yes")
 SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "") if DRY_RUN else os.environ["SLACK_WEBHOOK_URL"]
 

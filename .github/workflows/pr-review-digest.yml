@@ -21,7 +21,7 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           owner: reactor-team
-          repositories: reactor,fluxcd
+          repositories: reactor,fluxcd,reactor-webapp,admin-webapp
 
       - uses: actions/setup-python@v5
         with:
@@ -32,4 +32,4 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          REPOS: "reactor-team/reactor,reactor-team/fluxcd"
+          REPOS: "reactor-team/reactor,reactor-team/fluxcd,reactor-team/reactor-webapp,reactor-team/admin-webapp"
