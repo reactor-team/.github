@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """PR Review Digest — posts a Slack summary of stale PRs.
 
-Queries GitHub for open PRs across configured repos, buckets them by staleness
-(warning >= 36h, stale >= 48h since review was requested or since the last commit
-after that request), and posts a formatted digest to a Slack incoming webhook.
+Queries GitHub for open PRs across configured repos and reports those that have
+been waiting >= 48h for review (since review was requested or since the last
+commit after that request), then posts a formatted digest to a Slack incoming
+webhook. Approved PRs are excluded — they no longer need review.
 """
 from __future__ import annotations
 
@@ -16,12 +17,15 @@ from datetime import datetime, timedelta, timezone
 from typing import Union
 
 GH_TOKEN = os.environ["GH_TOKEN"]
-REPOS = os.environ.get("REPOS", "reactor-team/reactor,reactor-team/fluxcd")
+REPOS = os.environ.get(
+    "REPOS",
+    "reactor-team/reactor,reactor-team/fluxcd,"
+    "reactor-team/reactor-webapp,reactor-team/admin-webapp",
+)
 DRY_RUN = os.environ.get("DRY_RUN", "").lower() in ("1", "true", "yes")
 SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "") if DRY_RUN else os.environ["SLACK_WEBHOOK_URL"]
 
 STALE_THRESHOLD = timedelta(hours=48)
-WARNING_THRESHOLD = timedelta(hours=36)
 
 BOT_LOGINS = {"dependabot", "renovate", "github-actions"}
 
@@ -51,26 +55,6 @@ def is_bot(user: dict) -> bool:
         or login in BOT_LOGINS
         or login.endswith("[bot]")
     )
-
-
-def get_merge_state(repo: str, pr_number: int) -> str:
-    """Return GitHub's mergeable_state for a PR.
-
-    Possible values: clean, unstable, blocked, behind, dirty, has_hooks, unknown.
-    The list endpoint omits this field reliably, so fetch the single-PR endpoint.
-    """
-    pr = gh_api(f"/repos/{repo}/pulls/{pr_number}")
-    return pr.get("mergeable_state", "unknown") if isinstance(pr, dict) else "unknown"
-
-
-MERGE_STATE_LABELS: dict[str, str] = {
-    "clean": ":white_check_mark: ready",
-    "has_hooks": ":white_check_mark: ready",
-    "unstable": ":white_check_mark: ready",
-    "blocked": ":no_entry: blocked",
-    "behind": ":arrow_down: behind main",
-    "dirty": ":warning: conflicts",
-}
 
 
 def get_approval_status(
@@ -132,9 +116,14 @@ def get_clock_start(repo: str, pr_number: int, pr_created_at: str) -> datetime:
     return earliest_request
 
 
-def get_stale_prs() -> tuple[list[dict], list[dict], list[dict], int]:
+def get_stale_prs() -> tuple[list[dict], int]:
+    """Return (stale_prs, under_threshold_count).
+
+    Stale = open, non-draft, non-bot, not approved, has requested reviewers, and
+    waiting >= STALE_THRESHOLD since review was requested / last commit after it.
+    """
     now = datetime.now(timezone.utc)
-    approved, stale, warning, healthy = [], [], [], 0
+    stale, under_threshold = [], 0
 
     for repo in (r.strip() for r in REPOS.split(",")):
         pulls = gh_api(f"/repos/{repo}/pulls?state=open&per_page=100")
@@ -145,20 +134,9 @@ def get_stale_prs() -> tuple[list[dict], list[dict], list[dict], int]:
             if is_bot(pr.get("user", {})):
                 continue
 
-            is_approved, approved_at, approver = get_approval_status(repo, pr["number"])
-
+            # Approved PRs no longer need review — exclude them entirely.
+            is_approved, _, _ = get_approval_status(repo, pr["number"])
             if is_approved:
-                merge_state = get_merge_state(repo, pr["number"])
-                approved.append({
-                    "repo": repo.split("/")[-1],
-                    "number": pr["number"],
-                    "title": pr["title"],
-                    "url": pr["html_url"],
-                    "author": pr["user"]["login"],
-                    "approver": approver,
-                    "approved_age": now - approved_at,
-                    "merge_state": merge_state,
-                })
                 continue
 
             reviewers = [r["login"] for r in pr.get("requested_reviewers", [])]
@@ -168,7 +146,11 @@ def get_stale_prs() -> tuple[list[dict], list[dict], list[dict], int]:
             clock_start = get_clock_start(repo, pr["number"], pr["created_at"])
             staleness = now - clock_start
 
-            entry = {
+            if staleness < STALE_THRESHOLD:
+                under_threshold += 1
+                continue
+
+            stale.append({
                 "repo": repo.split("/")[-1],
                 "number": pr["number"],
                 "title": pr["title"],
@@ -176,19 +158,10 @@ def get_stale_prs() -> tuple[list[dict], list[dict], list[dict], int]:
                 "author": pr["user"]["login"],
                 "reviewers": reviewers,
                 "staleness": staleness,
-            }
+            })
 
-            if staleness >= STALE_THRESHOLD:
-                stale.append(entry)
-            elif staleness >= WARNING_THRESHOLD:
-                warning.append(entry)
-            else:
-                healthy += 1
-
-    approved.sort(key=lambda p: p["approved_age"], reverse=True)
     stale.sort(key=lambda p: p["staleness"], reverse=True)
-    warning.sort(key=lambda p: p["staleness"], reverse=True)
-    return approved, stale, warning, healthy
+    return stale, under_threshold
 
 
 def format_staleness(td: timedelta) -> str:
@@ -208,46 +181,22 @@ def format_pr(pr: dict) -> str:
     )
 
 
-def format_approved_pr(pr: dict) -> str:
-    age = format_staleness(pr["approved_age"])
-    tag = MERGE_STATE_LABELS.get(pr["merge_state"], "")
-    tag_suffix = f" · {tag}" if tag else ""
-    return (
-        f"• *{pr['repo']}* <{pr['url']}|#{pr['number']}> — {pr['title']}{tag_suffix}\n"
-        f"  Approved {age} ago by @{pr['approver']} · author @{pr['author']}"
-    )
-
-
-def build_slack_message(
-    approved: list, stale: list, warning: list, healthy: int
-) -> dict:
-    if not approved and not stale and not warning:
+def build_slack_message(stale: list, under_threshold: int) -> dict:
+    if not stale:
         return {
             "text": ":clipboard: *PR Review Digest*\n"
-                    ":white_check_mark: All clear — no PRs waiting more than 36h for review."
+                    ":white_check_mark: All clear — no PRs waiting more than 48h for review."
         }
 
     sections = [":clipboard: *PR Review Digest*\n"]
+    sections.append(":rotating_light: *Stale (48h+)*")
+    sections.extend(format_pr(pr) for pr in stale)
 
-    if approved:
-        sections.append(":white_check_mark: *Approved — ready to merge*")
-        sections.extend(format_approved_pr(pr) for pr in approved)
+    if under_threshold:
+        plural = "s" if under_threshold != 1 else ""
+        verb = "are" if under_threshold != 1 else "is"
         sections.append("")
-
-    if stale:
-        sections.append(":rotating_light: *Stale (48h+)*")
-        sections.extend(format_pr(pr) for pr in stale)
-        sections.append("")
-
-    if warning:
-        sections.append(":eyes: *Needs attention (36h+)*")
-        sections.extend(format_pr(pr) for pr in warning)
-        sections.append("")
-
-    if healthy:
-        plural = "s" if healthy != 1 else ""
-        verb = "are" if healthy != 1 else "is"
-        sections.append(f"_{healthy} other open PR{plural} {verb} healthy (<36h)_")
+        sections.append(f"_{under_threshold} other open PR{plural} {verb} under 48h_")
 
     return {"text": "\n".join(sections)}
 
@@ -268,13 +217,10 @@ def post_to_slack(payload: dict) -> None:
 
 def main() -> None:
     print(f"Fetching open PRs from: {REPOS}")
-    approved, stale, warning, healthy = get_stale_prs()
-    print(
-        f"Found {len(approved)} approved, {len(stale)} stale, "
-        f"{len(warning)} warning, {healthy} healthy PRs"
-    )
+    stale, under_threshold = get_stale_prs()
+    print(f"Found {len(stale)} stale (48h+), {under_threshold} under 48h")
 
-    payload = build_slack_message(approved, stale, warning, healthy)
+    payload = build_slack_message(stale, under_threshold)
     if DRY_RUN:
         print("[DRY_RUN] Would post to Slack:")
         print(payload["text"])
